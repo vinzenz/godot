@@ -12,10 +12,12 @@ def add_source_files(self, sources, filetype, lib_env = None, shared = False):
 		list = glob.glob(dir + "/"+filetype)
 		for f in list:
 			sources.append( self.Object(f) )
+			self.__class__.global_lookup[sources[-1][0]] = os.path.join(os.getcwd(), f)
 	else:
 		for f in filetype:
 			sources.append(self.Object(f))
-			
+			self.__class__.global_lookup[sources[-1][0]] = os.path.join(os.getcwd(), f)
+
 
 def build_shader_header( target, source, env ): 
 

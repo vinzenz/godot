@@ -27,6 +27,12 @@ tools/editor/register_exporters.cpp
 *.includes
 
 
+# codelite files
+.codelite
+
+Makefile
+*.make
+
 # for projects that use SCons for building: http://http://www.scons.org/
 .sconsign.dblite
 *.pyc
@@ -59,6 +65,7 @@ bld/
 *.VisualState.xml
 TestResult.xml
 
+*.[oa]
 *_i.c
 *_p.c
 *_i.h

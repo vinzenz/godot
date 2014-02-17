@@ -15,7 +15,6 @@ platform_list = [] # list of platforms
 platform_opts = {} # options for each platform
 platform_flags = {} # flags for each platform
 
-
 active_platforms=[]
 active_platform_ids=[]
 platform_exporters=[]
@@ -76,6 +75,7 @@ env_base.__class__.android_module_file = methods.android_module_file
 env_base.__class__.android_module_manifest = methods.android_module_manifest
 env_base.__class__.disable_module = methods.disable_module
 
+env_base.__class__.global_lookup = {}
 env_base.__class__.add_source_files = methods.add_source_files
 
 customs = ['custom.py']
@@ -158,6 +158,95 @@ if (env_base['target']=='debug'):
 
 env_base.platforms = {}
 
+premake = {}
+
+class PremakeProject:
+    __slots__ = ['sources', 'defines', 'includedirs', 'libs']
+
+    def __init__(self, name, platform, type):
+        self.name = name
+        self.type = type
+        self.directory = os.getcwd()
+        self.sources = []
+        self.defines = []
+        self.includedirs = []
+        self.libs = []
+        self.platform = platform
+        self.ccflags = []
+        self.cflags = []
+        self.linkflags = []
+
+def Dump(env, platform, type):
+    old = getattr(env, type)
+    def f(name, sources):
+        import os
+        subdir = os.path.relpath(os.getcwd(), env.fs.Top.abspath)
+
+        project = PremakeProject(name, platform, type)
+
+        for src in sources:
+            if isinstance(src, str):
+                if src[0] != '#':
+                    src = os.path.join(subdir, src)
+                else:
+                    src = src[1:]
+                project.sources.append(src.replace('\\', '/'))
+            else:
+                project.sources.append(os.path.relpath(env.__class__.global_lookup[src[0]], env.fs.Top.abspath).replace('\\', '/'))
+
+        if type != 'Library':
+            for lib in env._dict['LIBS']:
+                if not isinstance(lib, str) and lib:
+                    for f in lib:
+                        lpath = str(f)
+                        if os.path.isabs(lpath):
+                            project.libs.append('$' + lpath if platform == 'windows' else os.path.basename(lpath)[3:-2])
+                else:
+                    project.libs.append('$' + lib)
+        project.defines = [e.replace(env._dict['CPPDEFPREFIX'],'').replace('-D', '').replace('/D', '').replace('\\', '\\\\') for e in env._dict['CPPFLAGS']]
+	if platform == 'windows':
+		project.defines.append('WINDOWS_ENABLED')
+        project.includedirs = [e.replace('#', '').replace('\\', '/') or '.' for e in env._dict['CPPPATH']]
+        project.includedirs.append('drivers/vorbis')
+        project.cflags = []
+	for item in env._dict['CFLAGS']:
+		if isinstance(item, list):
+			project.cflags.extend(item)
+		else:
+			project.cflags.append(item)
+        project.ccflags = []
+	for item in env._dict['CCFLAGS']:
+		if isinstance(item, list):
+			project.ccflags.extend(item)
+		else:
+			project.ccflags.append(item)
+        project.linkflags = []
+	for item in env._dict['LINKFLAGS']:
+		if isinstance(item, list):
+			project.linkflags.extend(item)
+		else:
+			project.linkflags.append(item)
+        if type == "Library":
+            premake["%s.%s" % (name, platform)] = project
+        else:
+            premake[name] = project
+        return old(name, sources)
+    return f
+
+def CloneImpl(env, platform):
+	realClone = env.Clone
+	def Clone():
+		r = realClone()
+		substitute(r, platform)
+		return r
+	return Clone
+
+def substitute(env, p):
+	env.SharedLibrary = Dump(env, p, 'SharedLibrary')
+	env.Library = Dump(env, p, 'Library')
+	env.Program = Dump(env, p, 'Program')
+	env.Clone = CloneImpl(env, p)
+
 for p in platform_list:
 
 	sys.path.append("./platform/"+p)
@@ -166,7 +255,7 @@ for p in platform_list:
 		env = detect.create(env_base)
 	else:
 		env = env_base.Clone()
-
+	substitute(env, p)
 	CCFLAGS = env.get('CCFLAGS', '')
 	env['CCFLAGS'] = ''
 
@@ -305,3 +394,20 @@ for p in platform_list:
 
 	SConscript("platform/"+p+"/SCsub"); # build selected platform
 
+	import json
+	with open('premake.json', 'w') as f:
+		prepare = {}
+		for k, v in premake.iteritems():
+			prepare[k] = v.__dict__.copy()
+			prepare[k]['name'] = prepare[k]['name'].replace('#', '')
+			empty = []
+			for kp, vp in prepare[k].iteritems():
+				if not vp:
+				    empty.append(kp)
+			for e in empty:
+				del prepare[k][e]
+		import json
+		f.write(json.dumps(prepare))
+
+	#from pprint import pprint
+	#pprint(env._dict)
